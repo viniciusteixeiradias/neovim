@@ -6,70 +6,116 @@ return {
 
         -- https://www.reddit.com/r/neovim/comments/12e6a7j/volar_with_vuejs_3/
         "folke/neoconf.nvim",
-        "folke/neodev.nvim"
+        "folke/neodev.nvim",
+
+        -- extra
+        'hrsh7th/nvim-cmp', -- Autocompletion plugin
+        "hrsh7th/cmp-buffer", -- source for text in buffer
+        "hrsh7th/cmp-path", -- source for file system paths
+        'hrsh7th/cmp-nvim-lsp', -- LSP source for nvim-cmp
+        'saadparwaiz1/cmp_luasnip', -- Snippets source for nvim-cmp
+        'L3MON4D3/LuaSnip', -- Snippets plugin
+        'rafamadriz/friendly-snippets', -- Snippets collection
+        "onsails/lspkind.nvim", -- vs-code like pictograms
+
     },
     config = function()
         require("neodev").setup({})
         require("neoconf").setup({})
-        local mason = require("mason")
-        local mason_lsp_config = require("mason-lspconfig")
-        local lspconfig = require('lspconfig')
+        require("mason").setup({})
 
-    -- ○ friendly-snippets 
+
         -- Mason
+        local mason = require("mason-lspconfig")
         mason.setup({
-            ui = {
-                icons = {
-                    package_installed = "✓",
-                    package_pending = "➜",
-                    package_uninstalled = "✗"
-                }
-            }
+            ensure_installed = {
+                "volar",
+                "lua_ls",
+                "pyright",
+                "tsserver",
+                "rust_analyzer"
+            },
         })
 
-        -- Mason LSP Config
-        mason_lsp_config.setup({
-            ensure_installed = { "lua_ls", "pyright", "rust_analyzer", "tsserver", "volar" },
-        })
-
-        mason_lsp_config.setup_handlers({
+        mason.setup_handlers({
             function(server_name)
+                local lspconfig = require("lspconfig")
                 local server_config = {}
+
                 if require("neoconf").get(server_name .. ".disable") then
                     return
                 end
+
                 if server_name == "volar" then
                     server_config.filetypes = { 'vue', 'typescript', 'javascript' }
                 end
+
                 lspconfig[server_name].setup(server_config)
-            end,
+            end
         })
 
-        --[[
-        mason_lsp_config.setup_handlers {
-            function (server_name) -- default handler (optional)
-                lspconfig[server_name].setup {}
-            end
+
+        -- CMP
+        local cmp = require("cmp")
+        local luasnip = require("luasnip")
+        local lspconfig = require("lspconfig")
+
+        local cmp_custom_mapping = {
+            tab = function(fallback)
+                if cmp.visible() then
+                    cmp.select_next_item()
+                elseif luasnip.expand_or_jumpable() then
+                    luasnip.expand_or_jump()
+                else
+                    fallback()
+                end
+            end,
+            shift_tab = function(fallback)
+                if cmp.visible() then
+                    cmp.select_prev_item()
+                elseif luasnip.jumpable(-1) then
+                    luasnip.jump(-1)
+                else
+                    fallback()
+                end
+            end,
         }
-        --]]
 
-        -- Global mappings.
-        -- See `:help vim.diagnostic.*` for documentation on any of the below functions
-        vim.keymap.set('n', '<space>e', vim.diagnostic.open_float)
-        vim.keymap.set('n', '[d', vim.diagnostic.goto_prev)
-        vim.keymap.set('n', ']d', vim.diagnostic.goto_next)
-        vim.keymap.set('n', '<space>q', vim.diagnostic.setloclist)
+        cmp.setup {
+            snippet = {
+                expand = function(args)
+                    luasnip.lsp_expand(args.body)
+                end,
+            },
+            mapping = cmp.mapping.preset.insert({
+                ['<C-u>'] = cmp.mapping.scroll_docs(-4), -- Up
+                ['<C-d>'] = cmp.mapping.scroll_docs(4), -- Down
+                ['<C-Space>'] = cmp.mapping.complete(), -- Ask autocompletion
+                ['<CR>'] = cmp.mapping.confirm { select = true }, -- Select
+                ['<Tab>'] = cmp.mapping(cmp_custom_mapping.tab, { 'i', 's' }), -- Next
+                ['<S-Tab>'] = cmp.mapping(cmp_custom_mapping.shift_tab, { 'i', 's' }), -- Preview
+            }),
+            sources = {
+                { name = 'nvim_lsp' },
+                { name = 'luasnip' },
+                { name = 'path' }
+            },
+        }
 
-        -- Use LspAttach autocommand to only map the following keys
-        -- after the language server attaches to the current buffer
+        local capabilities = require("cmp_nvim_lsp").default_capabilities()
+
+        -- Enable some language servers with the additional completion capabilities offered by nvim-cmp
+        local servers = { 'volar', 'pyright', 'tsserver' }
+        for _, lsp in ipairs(servers) do
+            lspconfig[lsp].setup({ capabilities = capabilities })
+        end
+
+
+        -- LSP Attach
+        -- See `:help vim.lsp.*` for documentation on any of the below functions
         vim.api.nvim_create_autocmd('LspAttach', {
-            group = vim.api.nvim_create_augroup('UserLspConfig', {}),
+            -- group = vim.api.nvim_create_augroup('UserLspConfig', {}),
             callback = function(ev)
-                -- Enable completion triggered by <c-x><c-o>
-                vim.bo[ev.buf].omnifunc = 'v:lua.vim.lsp.omnifunc'
-
-                -- Buffer local mappings.
-                -- See `:help vim.lsp.*` for documentation on any of the below functions
                 local opts = { buffer = ev.buf }
                 vim.keymap.set('n', 'gD', vim.lsp.buf.declaration, opts)
                 vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
@@ -80,13 +126,15 @@ return {
                 vim.keymap.set('n', '<space>rn', vim.lsp.buf.rename, opts)
                 vim.keymap.set({ 'n', 'v' }, '<space>ca', vim.lsp.buf.code_action, opts)
                 vim.keymap.set('n', 'gr', vim.lsp.buf.references, opts)
-
-                -- TODO: Do i need it?
-                vim.keymap.set('n', '<space>f', function()
-                    vim.lsp.buf.format { async = true }
-                end, opts)
             end,
         })
 
+
+        -- Global Mappings
+        -- See `:help vim.diagnostic.*` for documentation on any of the below functions
+        vim.keymap.set('n', '<space>e', vim.diagnostic.open_float)
+        vim.keymap.set('n', '[d', vim.diagnostic.goto_prev)
+        vim.keymap.set('n', ']d', vim.diagnostic.goto_next)
+        vim.keymap.set('n', '<space>q', vim.diagnostic.setloclist)
     end
 }

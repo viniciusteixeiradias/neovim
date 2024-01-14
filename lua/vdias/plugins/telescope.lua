@@ -10,7 +10,7 @@ return {
         local telescope = require("telescope").load_extension("fzf")
         local builtin = require("telescope.builtin")
 
-        function find_files()
+        local function find_files()
             builtin.find_files({
                 find_command = {'rg', '--files', '--hidden', '-g', '!.git'}
             })
